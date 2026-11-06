@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Welcome to the Techcake Intern Web Server &mdash; django1</title>
+  <style>
+    :root {
+      --tc-indigo: #1e1647;
+      --tc-indigo-2: #2a1f63;
+      --tc-red: #ec0d10;
+      --tc-red-2: #f41918;
+      --tc-blue: #1d53c0;
+      --tc-white: #ffffff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: radial-gradient(1200px 600px at 50% -10%, var(--tc-indigo-2), var(--tc-indigo) 60%);
+      color: var(--tc-white);
+      min-height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: 100%; max-width: 640px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 20px;
+      padding: 52px 40px;
+      text-align: center;
+      backdrop-filter: blur(6px);
+      box-shadow: 0 30px 80px rgba(0,0,0,0.45);
+    }
+    .badge {
+      width: 88px; height: 88px; margin: 0 auto 28px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, var(--tc-blue), var(--tc-red-2));
+      box-shadow: 0 0 0 8px rgba(29,83,192,0.18);
+    }
+    .badge svg { width: 44px; height: 44px; }
+    h1 {
+      font-size: 32px; line-height: 1.2; margin-bottom: 24px; font-weight: 800;
+      color: var(--tc-white);
+    }
+    h1 .grad {
+      background: linear-gradient(90deg, var(--tc-blue), var(--tc-red-2));
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .welcome {
+      font-size: 15px; color: var(--tc-white);
+      background: rgba(29,83,192,0.16);
+      border: 1px dashed rgba(29,83,192,0.6);
+      border-radius: 12px;
+      padding: 12px 16px; margin-bottom: 32px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }
+    .highlight {
+      border-radius: 16px;
+      padding: 26px 24px;
+      background: linear-gradient(135deg, rgba(29,83,192,0.18), rgba(244,25,24,0.18));
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+    .highlight .hosted {
+      font-size: 18px; line-height: 1.5; color: var(--tc-white); font-weight: 600;
+    }
+    .highlight .company {
+      color: var(--tc-white); font-weight: 800;
+      border-bottom: 3px solid var(--tc-red);
+      padding-bottom: 1px;
+    }
+    .highlight .tagline {
+      margin-top: 14px;
+      font-size: 20px; font-style: italic; font-weight: 800;
+      letter-spacing: 0.3px;
+      background: linear-gradient(90deg, var(--tc-blue), var(--tc-red-2));
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .visits {
+      margin-top: 20px; font-size: 14px; font-weight: 700; color: var(--tc-white);
+      background: rgba(29,83,192,0.18); border: 1px solid rgba(29,83,192,0.5);
+      border-radius: 999px; padding: 6px 16px; display: inline-block;
+    }
+    .release {
+      margin-top: 14px; font-size: 13px; color: var(--tc-white);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      opacity: 0.85;
+    }
+    .stack {
+      margin-top: 18px; font-size: 13px; color: rgba(255,255,255,0.6);
+      letter-spacing: 0.5px;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="badge" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 12.5l5 5L20 6.5" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+
+    <h1>You did it. <span class="grad">Delivered by your pipeline.</span></h1>
+
+    <div class="welcome">Welcome to the Techcake Intern Web Server &mdash; djangov2</div>
+
+    <div class="highlight">
+      <div class="hosted">Hosted by a future DevOps engineer at <span class="company">Techcake Cloud Innovations LLP</span>.</div>
+      <div class="tagline">Baking future DevOps engineers.</div>
+    </div>
+
+    {% if visits %}<div class="visits">Visit #{{ visits }} &middot; counted in Redis</div>{% endif %}
+
+    <div class="release">Version {{ version }}</div>
+
+    <div class="stack">v3 &middot; CI/CD &middot; Amazon RDS &middot; Amazon S3 &middot; Redis</div>
+  </main>
+</body>
+</html>
