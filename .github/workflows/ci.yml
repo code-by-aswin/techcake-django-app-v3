@@ -3,7 +3,8 @@ name: CI and ECR
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -12,12 +13,22 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Show IDs for AWS trust policy
+        run: echo "owner-id=${{ github.repository_owner_id }} repo-id=${{ github.repository_id }}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - run: python manage.py test
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Django tests
+        run: python manage.py test
         env:
           DB_ENGINE: sqlite
 
@@ -29,14 +40,21 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ap-south-1
-      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Log in to Amazon ECR
         id: login-ecr
-      - uses: docker/build-push-action@v6
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
