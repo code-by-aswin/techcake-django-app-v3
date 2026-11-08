@@ -44,6 +44,8 @@ class HealthCheckTests(TestCase):
             response = self.client.get("/health")
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["database"], "unreachable")
-        class IntentionalFailureForCIGate(TestCase):
+
+
+class IntentionalFailureForCIGate(TestCase):
     def test_gate_blocks_merge(self):
         self.fail("Intentional CI gate demonstration")
