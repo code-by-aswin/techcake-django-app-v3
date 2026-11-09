@@ -45,27 +45,40 @@ jobs:
           build-args: |
             APP_VERSION=${{ github.sha }}
 
+      - name: Pull official Trivy scanner image
+        run: docker pull ghcr.io/aquasecurity/trivy:0.75.0
+
       - name: Generate full Trivy JSON report
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: techcake-django-app-v3:${{ github.sha }}
-          format: json
-          output: trivy-report.json
-          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
-          exit-code: "0"
-          ignore-unfixed: "false"
-          scanners: vuln
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy-cache"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -v "$RUNNER_TEMP/trivy-cache:/root/.cache" \
+            ghcr.io/aquasecurity/trivy:0.75.0 \
+            image --image-src docker \
+            --format json \
+            --output /work/trivy-report.json \
+            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --exit-code 0 \
+            --scanners vuln \
+            --no-progress \
+            "techcake-django-app-v3:${GITHUB_SHA}"
 
       - name: Fail scan on CRITICAL vulnerabilities
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: techcake-django-app-v3:${{ github.sha }}
-          format: table
-          severity: CRITICAL
-          exit-code: "1"
-          ignore-unfixed: "false"
-          scanners: vuln
-          skip-setup-trivy: true
+        shell: bash
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$RUNNER_TEMP/trivy-cache:/root/.cache" \
+            ghcr.io/aquasecurity/trivy:0.75.0 \
+            image --image-src docker \
+            --severity CRITICAL \
+            --exit-code 1 \
+            --scanners vuln \
+            --no-progress \
+            "techcake-django-app-v3:${GITHUB_SHA}"
 
       - name: Ensure a report file exists
         if: always()
