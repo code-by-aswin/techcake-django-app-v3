@@ -1,4 +1,4 @@
-Django>=4.2,<5.1
+Django>=5.2.19,<5.3
 gunicorn>=21.2
 PyMySQL>=1.1
 boto3>=1.34
