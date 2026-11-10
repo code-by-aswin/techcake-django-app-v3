@@ -147,3 +147,126 @@ jobs:
         run: |
           docker tag "techcake-django-app-v3:${IMAGE_TAG}" "${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
           docker push "${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+  deploy:
+    name: Deploy to EC2 via SSM
+    needs: push-to-ecr
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - name: Deploy, check health, and roll back on failure
+        shell: bash
+        env:
+          INSTANCE_ID: i-0e4b143a2b1a93eb8
+          IMAGE_REPOSITORY: 359655298245.dkr.ecr.ap-south-1.amazonaws.com/techcake-django-app-v3
+          REGISTRY: 359655298245.dkr.ecr.ap-south-1.amazonaws.com
+          COMPOSE_DIR: /home/ec2-user/techcake-django-app-v2
+          HEALTH_URL: https://djangov2.tc-2026-0052.nixlabs.in/health
+        run: |
+          set -euo pipefail
+
+          run_ssm() {
+            local script="$1"
+            local params command_id invocation status
+
+            params="$(jq -cn --arg command "$script" '{commands: [$command]}')"
+            command_id="$(aws ssm send-command \
+              --document-name AWS-RunShellScript \
+              --instance-ids "$INSTANCE_ID" \
+              --parameters "$params" \
+              --query 'Command.CommandId' \
+              --output text)"
+
+            for attempt in $(seq 1 60); do
+              invocation="$(aws ssm get-command-invocation \
+                --command-id "$command_id" \
+                --instance-id "$INSTANCE_ID" \
+                --output json 2>/dev/null || true)"
+              status="$(jq -r '.Status // empty' <<< "$invocation" 2>/dev/null || true)"
+
+              if [[ "$status" == "Success" ]]; then
+                jq -r '.StandardOutputContent // empty' <<< "$invocation"
+                return 0
+              fi
+
+              if [[ "$status" == "Failed" || "$status" == "TimedOut" || "$status" == "DeliveryTimedOut" || "$status" == "ExecutionTimedOut" || "$status" == "Cancelled" ]]; then
+                echo "SSM command ended with status: $status" >&2
+                jq -r '.StandardOutputContent // empty' <<< "$invocation" >&2
+                jq -r '.StandardErrorContent // empty' <<< "$invocation" >&2
+                return 1
+              fi
+
+              sleep 5
+            done
+
+            echo "Timed out waiting for SSM command $command_id" >&2
+            return 1
+          }
+
+          previous_image="$(run_ssm "docker inspect --format='{{.Config.Image}}' techcake-django-app-v2-django-1")"
+          if [[ "$previous_image" != *:* ]]; then
+            echo "Could not determine the currently running Django image: $previous_image" >&2
+            exit 1
+          fi
+
+          previous_repository="${previous_image%:*}"
+          previous_tag="${previous_image##*:}"
+          echo "Previous image: $previous_image"
+
+          rollback() {
+            local rollback_script
+            rollback_script="$(printf '%s\n' \
+              'set -e' \
+              "cd $COMPOSE_DIR" \
+              "IMAGE_REPOSITORY='$previous_repository' IMAGE_TAG='$previous_tag' docker compose up -d --pull never django")"
+            run_ssm "$rollback_script"
+          }
+
+          deploy_script="$(printf '%s\n' \
+            'set -e' \
+            "cd $COMPOSE_DIR" \
+            "trap 'docker logout $REGISTRY >/dev/null 2>&1 || true' EXIT" \
+            "aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $REGISTRY" \
+            "IMAGE_REPOSITORY='$IMAGE_REPOSITORY' IMAGE_TAG='$GITHUB_SHA' docker compose pull django" \
+            "IMAGE_REPOSITORY='$IMAGE_REPOSITORY' IMAGE_TAG='$GITHUB_SHA' docker compose up -d django")"
+
+          if ! run_ssm "$deploy_script"; then
+            echo "Deployment command failed; restoring $previous_image"
+            rollback || echo "Rollback command also failed."
+            exit 1
+          fi
+
+          body="$(mktemp)"
+          healthy=false
+
+          for attempt in $(seq 1 18); do
+            http_code="$(curl -sS --connect-timeout 5 --max-time 10 \
+              -o "$body" -w '%{http_code}' "$HEALTH_URL" || true)"
+            version="$(jq -r '.version // empty' "$body" 2>/dev/null || true)"
+            echo "Health attempt $attempt/18: HTTP $http_code, version=${version:-missing}"
+
+            if [[ "$http_code" == "200" && "$version" == "$GITHUB_SHA" ]]; then
+              cat "$body"
+              healthy=true
+              break
+            fi
+
+            sleep 10
+          done
+
+          rm -f "$body"
+
+          if [[ "$healthy" != "true" ]]; then
+            echo "Health check failed for SHA $GITHUB_SHA; restoring $previous_image"
+            rollback || echo "Rollback command also failed."
+            exit 1
+          fi
