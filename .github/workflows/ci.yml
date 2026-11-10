@@ -1,3 +1,153 @@
+name: CI, Trivy, and ECR
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Django tests
+        run: python manage.py test
+        env:
+          DB_ENGINE: sqlite
+
+  image-scan:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Build image locally (do not push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: techcake-django-app-v3:${{ github.sha }}
+          build-args: |
+            APP_VERSION=${{ github.sha }}
+
+      - name: Pull official Trivy scanner image
+        run: docker pull ghcr.io/aquasecurity/trivy:0.75.0
+
+      - name: Generate full Trivy JSON report
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy-cache"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -v "$RUNNER_TEMP/trivy-cache:/root/.cache" \
+            ghcr.io/aquasecurity/trivy:0.75.0 \
+            image --image-src docker \
+            --format json \
+            --output /work/trivy-report.json \
+            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --exit-code 0 \
+            --scanners vuln \
+            --no-progress \
+            "techcake-django-app-v3:${GITHUB_SHA}"
+
+      - name: Fail scan on CRITICAL vulnerabilities
+        shell: bash
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$RUNNER_TEMP/trivy-cache:/root/.cache" \
+            ghcr.io/aquasecurity/trivy:0.75.0 \
+            image --image-src docker \
+            --severity CRITICAL \
+            --exit-code 1 \
+            --scanners vuln \
+            --no-progress \
+            "techcake-django-app-v3:${GITHUB_SHA}"
+
+      - name: Ensure a report file exists
+        if: always()
+        shell: bash
+        run: |
+          if [ ! -f trivy-report.json ]; then
+            printf '{"status":"unavailable","reason":"Image build or Trivy did not produce a report."}\n' > trivy-report.json
+          fi
+
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: trivy-report.json
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Save the scanned image for the push job
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: docker save techcake-django-app-v3:${GITHUB_SHA} --output scanned-image.tar
+
+      - name: Upload scanned image for the push job
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanned-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: scanned-image.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  push-to-ecr:
+    needs:
+      - test
+      - image-scan
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs.image-scan.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download scanned image
+        uses: actions/download-artifact@v4
+        with:
+          name: scanned-image-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Load scanned image
+        run: docker load --input scanned-image.tar
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push the scanned image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker tag "techcake-django-app-v3:${IMAGE_TAG}" "${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          docker push "${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
   deploy:
     name: Deploy to EC2 via SSM
     needs: push-to-ecr
@@ -41,14 +191,14 @@
                 --command-id "$command_id" \
                 --instance-id "$INSTANCE_ID" \
                 --output json 2>/dev/null || true)"
-              status="$(jq -r '.Status // empty' <<< "$invocation")"
+              status="$(jq -r '.Status // empty' <<< "$invocation" 2>/dev/null || true)"
 
               if [[ "$status" == "Success" ]]; then
                 jq -r '.StandardOutputContent // empty' <<< "$invocation"
                 return 0
               fi
 
-              if [[ "$status" == "Failed" || "$status" == "TimedOut" || "$status" == "Cancelled" ]]; then
+              if [[ "$status" == "Failed" || "$status" == "TimedOut" || "$status" == "DeliveryTimedOut" || "$status" == "ExecutionTimedOut" || "$status" == "Cancelled" ]]; then
                 echo "SSM command ended with status: $status" >&2
                 jq -r '.StandardOutputContent // empty' <<< "$invocation" >&2
                 jq -r '.StandardErrorContent // empty' <<< "$invocation" >&2
