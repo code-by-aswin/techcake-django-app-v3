@@ -115,7 +115,7 @@ jobs:
     needs:
       - test
       - image-scan
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs.image-scan.result == 'success'
+    if: ${{ false }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -151,7 +151,7 @@ jobs:
   deploy:
     name: Deploy to EC2 via SSM
     needs: push-to-ecr
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: ${{ false }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
