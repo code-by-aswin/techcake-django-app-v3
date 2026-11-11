@@ -1,3 +1,4 @@
+```yaml
 name: CI, Trivy, and ECR
 
 on:
@@ -270,3 +271,4 @@ jobs:
             rollback || echo "Rollback command also failed."
             exit 1
           fi
+```
