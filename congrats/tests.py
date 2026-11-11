@@ -44,3 +44,6 @@ class HealthCheckTests(TestCase):
             response = self.client.get("/health")
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["database"], "unreachable")
+
+    def test_jenkins_failure_demo(self):
+        self.assertEqual(1, 2, "Intentional failure for Jenkins pipeline testing")
