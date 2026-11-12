@@ -28,10 +28,20 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
+                    sh 'git fetch origin main'
+
+                    def mainSha = sh(
+                        script: 'git rev-parse FETCH_HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    env.IS_MAIN = (env.GIT_SHA == mainSha).toString()
+
                     env.IMAGE = "${env.ECR_REPOSITORY}:${env.GIT_SHA}"
 
                     echo "Git commit: ${env.GIT_SHA}"
                     echo "Docker image: ${env.IMAGE}"
+                    echo "Main branch build: ${env.IS_MAIN}"
                 }
             }
         }
@@ -96,9 +106,7 @@ pipeline {
         stage('Push') {
             when {
                 expression {
-                    return env.GIT_BRANCH == 'origin/main' ||
-                           env.GIT_BRANCH == 'main' ||
-                           env.BRANCH_NAME == 'main'
+                    return env.IS_MAIN == 'true'
                 }
             }
 
@@ -125,9 +133,7 @@ pipeline {
         stage('Deploy') {
             when {
                 expression {
-                    return env.GIT_BRANCH == 'origin/main' ||
-                           env.GIT_BRANCH == 'main' ||
-                           env.BRANCH_NAME == 'main'
+                    return env.IS_MAIN == 'true'
                 }
             }
 
@@ -241,17 +247,13 @@ REMOTE
         stage('Verify') {
             when {
                 expression {
-                    return env.GIT_BRANCH == 'origin/main' ||
-                           env.GIT_BRANCH == 'main' ||
-                           env.BRANCH_NAME == 'main'
+                    return env.IS_MAIN == 'true'
                 }
             }
 
             steps {
                 sh '''#!/usr/bin/env bash
                     set -euo pipefail
-
-                    REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
                     if [[ ! -s previous-image.txt ]]; then
                         echo "Previous image information is missing."
